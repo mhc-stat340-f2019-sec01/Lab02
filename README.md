@@ -29,14 +29,14 @@ On the GitHub repository page for this lab, click "Fork" in the top right corner
 * Cross-validation
   * **For both reg01 and reg02**
     * split your data into 5 cross-validation folds.
-    * program a for loop that trains your model on 5 pieces of the data and evaluates on the "held-out" dataset.  (This for loop should iterate over all 4 training, testing sets.)
-    * compute the MSE for each test set
-    * compute the MSE averaged over each test set
+    * program a for loop that trains your model on 5 pieces of the data and evaluates on the "held-out" dataset.  (This for loop should iterate over all 5 folds.)
+    * compute the MSE for each validation fold
+    * compute the MSE averaged across all 5 folds.
   
 ## Discussion
 
   Please explain your model, making sure to reference the coefficients of the model and their significance.
   
-  How does your multiple regression model compare the simple linear regression model, and how would you communicate these results to an audience? 
+  How does your multiple regression model compare to the simple linear regression model, and how would you communicate these results to an audience?
   
   How does the cross-validation MSE compare between your simple and multiple regression models?  What does this mean?
