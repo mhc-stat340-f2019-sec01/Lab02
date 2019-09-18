@@ -29,7 +29,7 @@ On the GitHub repository page for this lab, click "Fork" in the top right corner
 * Cross-validation
   * **For both reg01 and reg02**
     * split your data into 5 cross-validation folds.
-    * program a for loop that trains your model on 5 pieces of the data and evaluates on the "held-out" dataset.  (This for loop should iterate over all 5 folds.)
+    * write a for loop that trains your model on 4 of the folds and evaluates on the "held-out" fold.  (This for loop should iterate over all 5 folds.)
     * compute the MSE for each validation fold
     * compute the MSE averaged across all 5 folds.
   
