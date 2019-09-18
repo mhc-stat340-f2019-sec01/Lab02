@@ -39,7 +39,7 @@ You must submit your pull request by 2pm on Tuesday, Sep 24.
   
 ## Discussion
 
-  Please explain your model, making sure to reference the coefficients of the model and their significance.
+  Please explain your model, making sure to reference the coefficients of the model.  You should discuss any relevant hypothesis tests or confidence intervals as appropriate.
   
   How does your multiple regression model compare to the simple linear regression model, and how would you communicate these results to an audience?
   
