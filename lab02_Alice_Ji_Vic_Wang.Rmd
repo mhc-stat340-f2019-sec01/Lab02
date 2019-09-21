@@ -1,0 +1,127 @@
+---
+title: "Lab02"
+author: "Alice Ji and Victoria Wang"
+date: "9/20/2019"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(GGally)
+library(caret)
+library(gridExtra)
+```
+## Exploratory Analysis
+```{r}
+# Read in and look at dataset
+bad_dr <- read_csv("data/bad-drivers.csv")
+names(bad_dr) <- c('state', 'num_dr_fatal_pbm', 'speeding', 'alc', 'undistr', 'no_prev_acc', 'insurance', 'loss_pdrv')
+head(bad_dr)
+```
+
+```{r}
+# Check correlation between variables
+cor(bad_dr[,-1])
+```
+Apparently, $loss_pdrv$ has the most significant correlation with our response variable $insurance$. Another slightly significantly correlated variable is $num_dr_fatal_pbm$. We will scatterplot these variables. 
+
+```{r}
+# Check some plots 
+plotList <- list()
+p1 <- ggplot() +
+  geom_point(data = bad_dr, mapping = aes(x = loss_pdrv, y = insurance))#Plot loss_pdrv~insurance
+p2 <- ggplot() +
+  geom_point(data = bad_dr, mapping = aes(x = num_dr_fatal_pbm, y = insurance)) # Plot num_dr_fatal_pbm~insurance
+
+grid.arrange(p1, p2, nrow = 1)
+```
+The first scatterplot (loss_pdrv~insurance) shows a positive relationship between the two variables loss_pdrv and insurance, but it is unclear if the relationship is linear. 
+
+The second scatterplot (num_dr_fatal_pbm~insurance~insurance) does not show a clear relationship between the two variables.
+
+## Model Construction
+Next, we fit a simple linear regression to predict insurance from percentage of drivers involved in fatal collisions who had not been involved in any previous accidents, which is defined as “loss_pdrv”. 
+```{r}
+# Simple linear regression
+reg01 <- lm(log(insurance) ~ loss_pdrv, data = bad_dr)
+summary(reg01)
+```
+The p-value of our simple linear model is 3.96e-07 which is significantly smaller than 0.05, indicating that there is enough evidence to predict insurance from “loss_pdrv”. 
+
+We then fit a multiple linear regression to predict insurance from percentage of drivers involved in fatal collisions, noted as “loss_pdrv” and the number of driver fatal per billion miles, noted as “num_dr_fatal_pdm”. When we fit the multiple regression, we need to make sure that there is no collinearity of our chosen explanatory variables. We therefore look at the correlations coefficients between “loss_pdrv” and other possible factors, and conclude that the collinearity effect of  “num_dr_fatal_pdm” is significantly small, with a coefficient of -0.03. 
+```{r}
+# Multiple linear regression
+reg02 <- lm(log(insurance) ~ loss_pdrv+num_dr_fatal_pbm, data = bad_dr)
+summary(reg02)
+```
+Our fitted model has a p-value of 1.077e-06, which is significantly smaller than 0.05. Although p-value of “num_dr_fatal_pbm” is larger than 0.05, we still want to conclude “num_dr_fatal_pbm” in our model because the R-Square is larger than simple linear model. 
+
+## Cross-Validation
+```{r}
+# Set seed
+set.seed(128)
+
+# Slice dataset into train&val, test
+train_val <- caret::createDataPartition(
+  y = bad_dr$insurance,
+  p = 0.8
+)
+drv_train_val <- bad_dr %>% slice(train_val[[1]])
+drv_test <- bad_dr %>% slice(-train_val[[1]])
+
+# Slice cross-validation
+folds <- 5
+crossval_fold_inds <- caret::createFolds(
+  y = drv_train_val$insurance,
+  k = folds
+)
+```
+
+```{r}
+df_mse <- data.frame()
+val_fold_num <- names(crossval_fold_inds)
+val_fold_num
+
+models <- paste0("reg0", 1:2)
+i = 1
+for(mod in lapply(models, function(x)get(x))){
+  for (num in val_fold_num){
+    temp <- data.frame()
+    # Get train val split
+    val <- drv_train_val %>% slice(crossval_fold_inds[[num]])
+    train <- drv_train_val %>% slice(-crossval_fold_inds[[num]])
+    
+    # 
+    train_resid <- log(train$insurance) - predict(mod) 
+    train_mse <- mean(train_resid^2)
+    
+    # 
+    val_resid <- log(val$insurance) - predict(mod) 
+    val_mse <- mean(val_resid^2)
+    
+    temp <- data.frame('model_num' = i, num, train_mse, val_mse)
+    df_mse <- rbind(df_mse, temp)
+  }
+  i <- i + 1
+}
+df_mse
+```
+```{r}
+# Train set average MSE across 5 folds
+train_mse <- df_mse %>% group_by(model_num) %>% summarize(train_mse = mean(train_mse))
+train_mse
+
+# Validation set average MSE across 5 folds
+val_mse <- df_mse %>% group_by(model_num) %>% summarize(val_mse = mean(val_mse))
+val_mse
+```
+Summary & Analysis 
+
+The mean value of train_mse across five validation sets of our simple linear regression is 0.0564; the mean value of val_mse across five validation sets of our simple linear regression is 0.0555.  The mean value of train_mse across five validation sets of multiple linear regression is 0.0579; the mean value of val_mse across five validation sets of our simple linear regression is 0.579. Even the MSE of our simple linear regression is relatively smaller, we don’t think we can differentiate these two models from MSE, as the MSE of both models are approximately the same. And the multiple regression model has a larger R-Square with a number of 0.41, compared to the R-Square of our first model with a number of 0.39. 
