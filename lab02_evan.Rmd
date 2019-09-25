@@ -1,0 +1,367 @@
+---
+title: "Lab 02"
+author: "Evan Ray"
+date: "9/24/2019"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(gridExtra)
+library(GGally)
+library(caret)
+```
+
+## Read in data set and fix variable names
+
+```{r}
+bad_drivers <- read_csv("data/bad-drivers.csv")
+names(bad_drivers) <- c(
+  "state",
+  "num_fatal_bill_miles",
+  "speeding",
+  "alcohol",
+  "not_distracted",
+  "no_prev_accidents",
+  "ins_premiums",
+  "ins_loss"
+)
+```
+
+## Exploratory plots
+
+```{r}
+bad_drivers %>%
+  select(c("num_fatal_bill_miles", "speeding", "alcohol", "not_distracted",
+    "no_prev_accidents", "ins_loss", "ins_premiums")) %>%
+  ggpairs()
+```
+
+Here's what I see in the pairs plots:
+
+ * Things about relationships between explanatory and response variables:
+    * There is an increasing and not-quite-linear relationship between `ins_loss` and `ins_premiums`.
+    * There is a non-linear relationship between `no_prev_accidents` and `ins_premiums`.  It looks like a quadratic term will be necessary there.
+    * There might be a weak quadratic relationship between `num_fatal_bill_miles` and `ins_premiums`.  Will need to investigate that more.
+    * There might be a relationship between `not_distracted` and `ins_premiums`, but what we're seeing is mainly driven by two influential observations with low values of `not_distracted`.  I don't trust it.
+    * Nothing apparent going on for `speeding` and `alcohol` 
+ * Things about whether the model is OK
+    * The response variable is skewed slightly to the right, and in the plot of `ins_loss` vs `ins_premiums` there is more variability in `ins_premiums` when `ins_loss` is large than when it is small.  This suggests that we might consider a transformation of the `ins_premiums` variable.
+    * I don't need to be particularly worried about multicollinearity
+
+## Regression Analysis and Cross-Validation
+
+I'm going to do the cross-validation for each individual model as I go along.  I'll set up the cross-validation folds here and use the same folds for all models I consider.
+
+```{r}
+set.seed(90811)
+val_folds <- createFolds(y = bad_drivers$ins_premiums, k = 5)
+```
+
+### Simple Linear Regression Model
+
+I'll use `ins_loss` as my explanatory variable since it has the closest to a linear relationship with the response.
+
+```{r}
+reg01 <- lm(ins_premiums ~ ins_loss, data = bad_drivers)
+summary(reg01)
+```
+
+```{r}
+val_mses <- rep(NA, 5)
+for(i in seq_len(5)) {
+  train_drivers <- bad_drivers %>% dplyr::slice(-val_folds[[i]])
+  val_drivers <- bad_drivers %>% dplyr::slice(val_folds[[i]])
+  
+  fit <- lm(ins_premiums ~ ins_loss, data = train_drivers)
+  val_mses[i] <- mean((val_drivers$ins_premiums - predict(fit, newdata = val_drivers))^2)
+}
+
+mean(val_mses)
+```
+
+
+### Multiple Regression Model
+
+#### Attempt 1
+
+To start with I'll try all the variables with degree 2 polynomial terms where the plots suggested they might be appropriate.
+
+```{r}
+reg02a <- lm(ins_premiums ~ poly(num_fatal_bill_miles, 2, raw = TRUE) + speeding + alcohol
+             + not_distracted+ poly(no_prev_accidents, 2, raw = TRUE) + poly(ins_loss, 2, raw = TRUE),
+            data = bad_drivers)
+summary(reg02a)
+```
+
+
+```{r}
+val_mses <- rep(NA, 5)
+for(i in seq_len(5)) {
+  train_drivers <- bad_drivers %>% dplyr::slice(-val_folds[[i]])
+  val_drivers <- bad_drivers %>% dplyr::slice(val_folds[[i]])
+  
+  fit <- lm(ins_premiums ~ poly(num_fatal_bill_miles, 2, raw = TRUE) + speeding + alcohol +
+    not_distracted + poly(no_prev_accidents, 2, raw = TRUE) + poly(ins_loss, 2, raw = TRUE),
+    data = train_drivers)
+  val_mses[i] <- mean((val_drivers$ins_premiums - predict(fit, newdata = val_drivers))^2)
+}
+
+mean(val_mses)
+```
+
+These cross-validation results indicate that our model is better than the simple linear regression model above.
+
+I'm going to try to fiddle with a few things to see if we can do a little better.  To start with, what happens if we take out those variables that look irrelevant (based on both the plots and the large p-values)?
+
+#### Attempt 2
+
+```{r}
+val_mses <- rep(NA, 5)
+for(i in seq_len(5)) {
+  train_drivers <- bad_drivers %>% dplyr::slice(-val_folds[[i]])
+  val_drivers <- bad_drivers %>% dplyr::slice(val_folds[[i]])
+  
+  fit <- lm(ins_premiums ~ poly(num_fatal_bill_miles, 2, raw = TRUE) +
+    poly(no_prev_accidents, 2, raw = TRUE) + poly(ins_loss, 2, raw = TRUE),
+    data = train_drivers)
+  val_mses[i] <- mean((val_drivers$ins_premiums - predict(fit, newdata = val_drivers))^2)
+}
+
+mean(val_mses)
+```
+
+```{r}
+reg02b <- lm(ins_premiums ~ poly(num_fatal_bill_miles, 2, raw = TRUE) + 
+  poly(no_prev_accidents, 2, raw = TRUE) + poly(ins_loss, 2, raw = TRUE),
+  data = bad_drivers)
+summary(reg02b)
+```
+
+The degree 2 polynomial term on `ins_loss` is very close to 0 and has the opposite sign as what I expected from the initial plot.  The p-value is also very large.  Maybe I should get rid of that?
+
+#### Attempt 3
+
+```{r}
+val_mses <- rep(NA, 5)
+for(i in seq_len(5)) {
+  train_drivers <- bad_drivers %>% dplyr::slice(-val_folds[[i]])
+  val_drivers <- bad_drivers %>% dplyr::slice(val_folds[[i]])
+  
+  fit <- lm(ins_premiums ~ poly(num_fatal_bill_miles, 2, raw = TRUE) +
+    poly(no_prev_accidents, 2, raw = TRUE) + ins_loss,
+    data = train_drivers)
+  val_mses[i] <- mean((val_drivers$ins_premiums - predict(fit, newdata = val_drivers))^2)
+}
+
+mean(val_mses)
+```
+
+```{r}
+reg02c <- lm(ins_premiums ~ poly(num_fatal_bill_miles, 2, raw = TRUE) + poly(no_prev_accidents, 2, raw = TRUE) + ins_loss,
+            data = bad_drivers)
+summary(reg02c)
+```
+
+Let's look at some diagnostic plots for this model to see if there are any other issues we should address.
+
+```{r}
+bad_drivers <- bad_drivers %>%
+  mutate(
+    residc = residuals(reg02c)
+  )
+
+p1 <- ggplot(
+    data = bad_drivers,
+    mapping = aes(x = num_fatal_bill_miles, y = residc)) +
+  geom_point()
+p2 <- ggplot(
+    data = bad_drivers,
+    mapping = aes(x = no_prev_accidents, y = residc)) +
+  geom_point()
+p3 <- ggplot(
+    data = bad_drivers,
+    mapping = aes(x = ins_loss, y = residc)) +
+  geom_point()
+p4 <- ggplot(
+    data = bad_drivers,
+    mapping = aes(x = residc)) +
+  geom_density()
+p5 <- ggplot(
+    data = bad_drivers,
+    mapping = aes(sample = residc)) +
+  stat_qq() +
+  stat_qq_line()
+
+grid.arrange(p1, p2, p3, p4, p5)
+
+car::influenceIndexPlot(reg02c,
+  vars = c("Cook", "Studentized", "hat"))
+2 * 6 / nrow(bad_drivers) # threshold for when we have to worry about leverage ("hat-values")
+```
+
+ * The residuals are skewed right, but not horribly.  This is not a serious problem.
+ * There are no indications of further non-linearities in any of these variables
+ * There is fairly constant variance of the residuals across the range of values for each explanatory variable.
+ * There are no outliers.
+ * All Cook's distances are less than 1, no need to worry
+ * Only a couple of studentized residuals slightly larger than 2, no need to worry
+ * Observation 9 has high leverage.
+
+```{r}
+bad_drivers$state[9]
+```
+
+The District of Columbia may be influencing our predictions.  We might consider not including it in this analysis of insurance premiums at the state level.
+
+#### Attempt 4
+
+```{r}
+bad_drivers_no_dc <- bad_drivers %>% slice(-9)
+
+reg02d <- lm(ins_premiums ~ poly(num_fatal_bill_miles, 2, raw = TRUE) +
+  poly(no_prev_accidents, 2, raw = TRUE) + ins_loss,
+  data = bad_drivers_no_dc)
+summary(reg02d)
+```
+
+Based on the p-values, it looks like the evidence for a quadratic term in `num_fatal_bill_miles` is much weaker now that DC is not included.
+
+Let's see what cross-validation has to say about dropping that term.  Note that my validation folds were based on the data set including DC.  To get comparable results, I'll just drop DC within my cross-validation loop.
+
+First, the model with `poly(num_fatal_bill_miles, 2, raw = TRUE)`, but now fit without including DC.
+
+```{r}
+val_mses <- rep(NA, 5)
+for(i in seq_len(5)) {
+  train_drivers <- bad_drivers %>%
+    dplyr::slice(-val_folds[[i]]) %>%
+    filter(state != "District of Columbia")
+  val_drivers <- bad_drivers %>%
+    dplyr::slice(val_folds[[i]]) %>%
+    filter(state != "District of Columbia")
+  
+  fit <- lm(ins_premiums ~ poly(num_fatal_bill_miles, 2, raw = TRUE) +
+    poly(no_prev_accidents, 2, raw = TRUE) + ins_loss,
+    data = train_drivers)
+  val_mses[i] <- mean((val_drivers$ins_premiums - predict(fit, newdata = val_drivers))^2)
+}
+
+mean(val_mses)
+```
+
+Now, the model without `num_fatal_bill_miles`
+
+```{r}
+val_mses <- rep(NA, 5)
+for(i in seq_len(5)) {
+  train_drivers <- bad_drivers %>%
+    dplyr::slice(-val_folds[[i]]) %>%
+    filter(state != "District of Columbia")
+  val_drivers <- bad_drivers %>%
+    dplyr::slice(val_folds[[i]]) %>%
+    filter(state != "District of Columbia")
+  
+  fit <- lm(ins_premiums ~ poly(no_prev_accidents, 2, raw = TRUE) + ins_loss,
+    data = train_drivers)
+  val_mses[i] <- mean((val_drivers$ins_premiums - predict(fit, newdata = val_drivers))^2)
+}
+
+mean(val_mses)
+```
+
+Looks like we should drop `num_fatal_bill_miles` from the model.
+
+#### Final Model!
+
+```{r}
+reg02e <- lm(ins_premiums ~ poly(no_prev_accidents, 2, raw = TRUE) + ins_loss,
+  data = bad_drivers_no_dc)
+summary(reg02e)
+```
+
+```{r}
+bad_drivers_no_dc <- bad_drivers_no_dc %>%
+  mutate(
+    reside = residuals(reg02e)
+  )
+
+p1 <- ggplot(
+    data = bad_drivers_no_dc,
+    mapping = aes(x = no_prev_accidents, y = reside)) +
+  geom_point()
+p2 <- ggplot(
+    data = bad_drivers_no_dc,
+    mapping = aes(x = ins_loss, y = reside)) +
+  geom_point()
+p3 <- ggplot(
+    data = bad_drivers_no_dc,
+    mapping = aes(x = reside)) +
+  geom_density()
+p4 <- ggplot(
+    data = bad_drivers_no_dc,
+    mapping = aes(sample = reside)) +
+  stat_qq() +
+  stat_qq_line()
+
+grid.arrange(p1, p2, p3, p4)
+
+car::influenceIndexPlot(reg02e,
+  vars = c("Cook", "Studentized", "hat"))
+2 * 4 / nrow(bad_drivers_no_dc) # threshold for when we have to worry about leverage ("hat-values")
+```
+
+
+Does anything change if we drop observations 12 and 17?
+
+```{r}
+reg02f <- lm(ins_premiums ~ poly(no_prev_accidents, 2, raw = TRUE) + ins_loss,
+  data = bad_drivers_no_dc %>% slice(-c(12, 17)))
+summary(reg02f)
+```
+
+Nope!  Parameter estimates are essentially unchanged.  No need to worry about those observations.
+
+### Explaining the model to an audience
+
+```{r}
+summary(reg02e)
+confint(reg02e)
+```
+
+```{r, fig.height = 5}
+bad_drivers <- bad_drivers %>% mutate(
+  state_dc = ifelse(
+    state == "District of Columbia",
+    "District of Columbia",
+    "One of the 50 States"
+  )
+)
+p1 <- ggplot(data = bad_drivers,
+    mapping = aes(x = ins_loss, y = ins_premiums, color = state_dc)) +
+  geom_point() +
+  geom_smooth(method= "lm", formula = y ~ x, se = FALSE) +
+  scale_color_manual("Region", values = c("red", "black")) +
+  xlab("Losses incurred by insurance companies for collisions per insured driver ($)") +
+  ylab("Car Insurance Premiums ($)") +
+  theme_bw()
+
+p2 <- ggplot(data = bad_drivers, mapping = aes(x = no_prev_accidents, y = ins_premiums, color = state_dc)) +
+  geom_point() +
+  geom_smooth(method= "lm", formula = y ~ poly(x, 2), se = FALSE) +
+  scale_color_manual("Region", values = c("red", "black")) +
+  xlab("Percentage Of Drivers In Fatal Collisions Who Had No Previous Accidents") +
+  ylab("Car Insurance Premiums ($)") +
+  theme_bw()
+
+grid.arrange(p1, p2)
+```
+
+The data provide strong evidence of an increasing relationship between insurance companies' losses in a given state and the premiums they charge, and a U-shaped relationship between premiums and the percentage of drivers involved in fatal collisions who had not been involved in any previous accidents.  These relationships are displayed in the figure above.  We have highlighted the District of Columbia in this figure because it showed unusually high premiums that did not fit the trends for the 50 states; for this reason, we excluded DC when fitting our models.
+
+We estimate that, holding fixed the percentage of drivers in a state who had no previous accidents, an increase of one dollar in losses incurred by insurance companies for collisions per insured driver is associated with an increase of between about \$2.35 and \$5.37 in insurance premiums.
+
+The cross-validated mean squared error of predictions was 19194.81 squared dollars for a regression model that included only insurance losses, and 16222.05 squared dollars for the model that included a quadratic term in the percent of drivers in fatal collisions who had no previous accidents.  Including this variable led to a substantial improvement in predictions of insurance premiums for states that were not used to estimate the model parameters.  The square root of the mean squared error for our selected model was about \$127.37.  Roughly, this means that our out-of-sample predictions of insurance premiums were off by an average of about \$127.
